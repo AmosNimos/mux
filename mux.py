@@ -4,6 +4,7 @@ import re
 from mido import MidiFile, MidiTrack, Message, MetaMessage, bpm2tempo
 from tempfile import NamedTemporaryFile
 import os
+import time
 
 def note_number_to_midi(note_number):
     return note_number if 0 <= note_number <= 127 else 128  # Use 128 to represent a muted note
@@ -53,12 +54,14 @@ def main(stdscr):
 
     # Initialize grid with tracks and tempo
     tempo = 120
-    tracks = [[[(0, 0) for _ in range(16)] for _ in range(chunks)] for _ in range(4)]  # 4 tracks, 1 chunk, 16 notes each, (note, volume)
+    tracks = [[[(-1, 0) for _ in range(16)] for _ in range(chunks)] for _ in range(4)]  # 4 tracks, 1 chunk, 16 notes each, (note, volume)
     instruments = [0] * 4  # Instrument for each track
     current_chunk = 0
 
     volume_levels = [0, 16, 48, 64]
     volume_chars = ['___', '-__', '--_', '---']
+
+    volume_display_time = 0
 
     while k != ord('q'):
         stdscr.clear()
@@ -72,7 +75,7 @@ def main(stdscr):
             for j in range(len(tracks[i][current_chunk])):
                 note, volume = tracks[i][current_chunk][j]
                 display_note = "---" if note == 0 else f"{note:3}"
-                display_volume = volume_chars[volume_levels.index(volume)]
+                display_volume = volume_chars[volume_levels.index(volume)] if i == cursor_y and time.time() < volume_display_time else '   '
                 stdscr.addstr(i * 2 + 1, j * 3 + 20, display_note)
                 stdscr.addstr(i * 2 + 2, j * 3 + 20, display_volume)
 
@@ -99,25 +102,20 @@ def main(stdscr):
                     cursor_x = 15
             else:
                 cursor_x = (cursor_x - 1) % 16
-        elif k == ord(' '):
+        elif k == ord('v'):
             volume_index = volume_levels.index(tracks[cursor_y][current_chunk][cursor_x][1])
             new_volume_index = (volume_index + 1) % len(volume_levels)
             tracks[cursor_y][current_chunk][cursor_x] = (tracks[cursor_y][current_chunk][cursor_x][0], volume_levels[new_volume_index])
+            volume_display_time = time.time() + 1  # Display volume bar for 1 second
         elif k == ord('n'):
-            curses.echo()
-            curses.curs_set(1)
-            stdscr.addstr(height - 1, 0, "Enter note (0-127): ")
-            note_input = stdscr.getstr().decode('utf-8')
-            curses.curs_set(0)
-            curses.noecho()
-            try:
-                note_value = int(note_input)
-                if 0 <= note_value <= 127:
-                    current_volume = tracks[cursor_y][current_chunk][cursor_x][1]
-                    new_volume = 64 if current_volume == 0 else current_volume
-                    tracks[cursor_y][current_chunk][cursor_x] = (note_value, new_volume)
-            except ValueError:
-                pass
+            curses.endwin()
+            note = int(input("Enter note (0-127 or -1 to mute): "))
+            if note > 127:
+                note = 127
+            if note < 0:
+                note = 0
+            tracks[cursor_y][current_chunk][cursor_x] = (note, tracks[cursor_y][current_chunk][cursor_x][1])
+            curses.setupterm()
         elif k == ord('+'):
             instruments[cursor_y] = (instruments[cursor_y] + 1) % 128
         elif k == ord('-'):
