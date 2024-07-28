@@ -1,13 +1,16 @@
 # Mux - Python MIDI Music Editor
 
-Mux is a simple command-line tool for creating MIDI files. With Mux, you can specify instrument settings, tempo, and a sequence of notes to generate a MIDI file. This tool is ideal for quick MIDI file generation and experimentation.
+Mux is a command-line tool for creating and editing MIDI files. It allows you to specify instrument settings, tempo, and sequences of notes and volumes to generate MIDI files. Mux is ideal for quick MIDI file generation, music composition, and experimentation.
 
 ## Features
 
 - **Instrument Selection**: Choose from a range of instruments.
 - **Tempo Control**: Set the tempo in BPM (Beats Per Minute).
-- **Note Sequencing**: Input sequences of notes to create music.
+- **Note Sequencing**: Input sequences of notes and control their volume.
+- **Multi-Track Support**: Create multiple tracks with different instruments and sequences.
+- **Chunk Navigation**: Divide your music into manageable chunks for easier editing.
 - **Customizable Output**: Specify the name of the output MIDI file.
+- **Playback**: Play the generated MIDI file directly from the editor.
 
 ## Installation
 
@@ -17,38 +20,49 @@ To use Mux, you need to have Python 3 and the `mido` library installed. You can 
 pip install mido
 ```
 
+You will also need `timidity` for MIDI playback:
+
+```bash
+sudo apt-get install timidity
+```
+
 ## Usage
 
-To create a MIDI file using Mux, use the following command:
+To start the Mux MIDI editor, use the following command:
 
 ```bash
-python create_midi.py -i <instrument> -t <tempo> -f <notes_file> [-o <output_file>]
+python mux.py
 ```
 
-### Arguments
+### Controls
 
-- `-i, --instrument`: **Required**. The instrument number (0-127). This corresponds to the MIDI instrument you want to use.
-- `-t, --tempo`: **Required**. The tempo in BPM (0-200). Controls the speed of the music.
-- `-f, --file`: **Required**. The path to the file containing the sequence of notes separated by commas.
-- `-o, --output`: **Optional**. The name of the output MIDI file. Defaults to `output.mid`.
+- **Arrow Keys**: Navigate through the notes and tracks.
+- **Space**: Change the volume of the selected note.
+- **n**: Input a note (0-127). Default volume is set to max if the note is newly assigned.
+- **+/-**: Change the instrument of the selected track.
+- **Enter**: Play the current track.
+- **e**: Export the current sequence to a MIDI file.
+- **c**: Add a new chunk.
+- **t**: Add a new track.
+- **x**: Delete the current track.
+- **q**: Quit the editor.
 
-### Notes File Format
+### Example Workflow
 
-The notes file should contain a sequence of MIDI note numbers separated by commas. For example:
+1. **Start the editor**:
+   ```bash
+   python mux.py
+   ```
+2. **Navigate to the desired position using the arrow keys**.
+3. **Input a note** by pressing `n` and entering the note value.
+4. **Adjust the volume** by pressing `space`.
+5. **Change the instrument** of the track using `+` or `-`.
+6. **Play the current track** by pressing `Enter`.
+7. **Export the sequence** to a MIDI file by pressing `e` and entering the file name.
 
-```
-60,62,64,65,67,69,71,72
-```
+## Notes and Volumes Format
 
-This represents a sequence of MIDI notes in ascending order.
-
-## Example
-
-To create a MIDI file with instrument 5, tempo 120 BPM, and notes from `notes.txt`, and save it as `my_song.mid`, use:
-
-```bash
-python create_midi.py -i 5 -t 120 -f notes.txt -o my_song.mid
-```
+The editor uses a grid where each cell represents a note and its volume. The note input and volume control are intuitive and designed for ease of use.
 
 ## License
 
