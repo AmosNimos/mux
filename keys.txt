@@ -1,4 +1,4 @@
-n = Edit note
+n = Edit new note
 e = export midi song
 c = add chunk
 z = delete current chunk
@@ -7,4 +7,5 @@ x = delete current track
 v = change track volume
 m = mute current track (temporarely or not still undecided)
 r = tempo (r for rythem since t is already taken by track)
+h = Apply note history (use same value as previus note)
 enter = preview track (could be space)

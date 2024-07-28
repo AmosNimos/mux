@@ -106,7 +106,7 @@ def main(stdscr):
             volume_index = volume_levels.index(tracks[cursor_y][current_chunk][cursor_x][1])
             new_volume_index = (volume_index + 1) % len(volume_levels)
             tracks[cursor_y][current_chunk][cursor_x] = (tracks[cursor_y][current_chunk][cursor_x][0], volume_levels[new_volume_index])
-            volume_display_time = time.time() + 1  # Display volume bar for 1 second
+            volume_display_time = time.time() + 2  # Display volume bar for 1 second
         elif k == ord('n'):
             curses.endwin()
             note = int(input("Enter note (0-127 or -1 to mute): "))
@@ -115,6 +115,10 @@ def main(stdscr):
             if note < 0:
                 note = 0
             tracks[cursor_y][current_chunk][cursor_x] = (note, tracks[cursor_y][current_chunk][cursor_x][1])
+            volume_index = volume_levels.index(tracks[cursor_y][current_chunk][cursor_x][1])
+            new_volume_index = len(volume_levels)
+            tracks[cursor_y][current_chunk][cursor_x] = (tracks[cursor_y][current_chunk][cursor_x][0], volume_levels[new_volume_index])
+            volume_display_time = time.time() + 1  # Display volume bar for 1 second
             curses.setupterm()
         elif k == ord('+'):
             instruments[cursor_y] = (instruments[cursor_y] + 1) % 128
