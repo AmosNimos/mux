@@ -1,174 +1,233 @@
 import curses
-import time
-import mido
-from mido import MidiFile, MidiTrack, Message
+import os
+from notes import NOTES  # Assuming NOTES array is defined in notes.py
+from mido import Message, MidiFile, MidiTrack
 
-# Constants
-NOTE_LENGTH = 7  # Adjusted to fit 6 tracks within brackets [123456]
-SONG_LENGTH = 16
-DEFAULT_BPM = 120
-MIN_TRACK_ID = 0
-MAX_TRACK_ID = 5
-NUM_NOTES = 16  # Number of different notes
-VOLUME_LEVELS = [20, 40, 60, 80, 100, 127]  # 6 volume levels
-INSTRUMENTS = ['Acoustic Grand Piano', 'Violin', 'Flute', 'Trumpet', 'Electric Guitar', 'Drums']  # 6 instruments
+DEFAULT_TEMPO = 120
+DEFAULT_INSTRUMENT = "1"  # Piano
+DEFAULT_VELOCITY = 80
 
-# Default values
-active_track_id = 0
-tempo = DEFAULT_BPM
-tracks = {i: [[False] * SONG_LENGTH for _ in range(NUM_NOTES)] for i in range(MIN_TRACK_ID, MAX_TRACK_ID + 1)}
-volumes = {i: 127 for i in range(MIN_TRACK_ID, MAX_TRACK_ID + 1)}
-instruments = {i: 0 for i in range(MIN_TRACK_ID, MAX_TRACK_ID + 1)}
-muted = {i: False for i in range(MIN_TRACK_ID, MAX_TRACK_ID + 1)}
-current_position = 0
-current_note = 0
+# Initialize tracks with default values
+tracks = []
+current_track = 0
+sustain = False  # Global variable to toggle sustain feature
+loop = False  # Global variable to toggle loop feature
 
-# Initialize screen
-stdscr = curses.initscr()
-curses.cbreak()
-curses.noecho()
-stdscr.keypad(True)
-curses.curs_set(0)  # Hide default CLI cursor
-curses.start_color()
-curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLUE)  # Active track color
-curses.init_pair(2, curses.COLOR_BLACK, curses.COLOR_WHITE)  # Other tracks color
-curses.init_pair(3, curses.COLOR_BLACK, curses.COLOR_YELLOW)  # Current hovered note color
-curses.init_pair(4, curses.COLOR_RED, curses.COLOR_WHITE)  # Unactive track color
-curses.init_pair(5, curses.COLOR_GREEN, curses.COLOR_BLACK)  # Info text color
+OCTAVE_SIZE = 12  # Define how many notes are in one octave
 
-def draw_tracks(stdscr, tracks, active_track_id, current_position, current_note):
-    max_y, max_x = stdscr.getmaxyx()
-    num_notes_visible = max_x // NOTE_LENGTH
-    start_index = (current_position // num_notes_visible) * num_notes_visible
-    end_index = start_index + num_notes_visible
+def init_tracks():
+    global tracks
+    tracks = [{'instrument': DEFAULT_INSTRUMENT, 'velocity': DEFAULT_VELOCITY, 'notes': ['00'] * 16}]
 
-    for note_idx in range(NUM_NOTES):
-        for i in range(start_index, end_index):
-            if i >= SONG_LENGTH:
-                break
+def create_temporary_midi_file(note_hex, velocity=DEFAULT_VELOCITY):
+    """Create a temporary MIDI file with a single note."""
+    midi = MidiFile()
+    track = MidiTrack()
+    midi.tracks.append(track)
 
-            note_display = ['_'] * (MAX_TRACK_ID + 1)
-            for track_id, track in tracks.items():
-                if track[note_idx][i]:
-                    note_display[track_id] = str(track_id).zfill(2)[-1]  # Ensure two-character track ID
+    note = int(note_hex, 16)
+    track.append(Message('program_change', program=0, time=0))  # Default instrument
+    track.append(Message('note_on', note=note, velocity=velocity, time=0))
+    track.append(Message('note_off', note=note, velocity=velocity, time=480))  # 480 ticks for 500ms
 
-            note_display_str = "[{}]".format("".join(note_display))
-            if i == current_position and note_idx == current_note:
-                color_pair = 3  # Highlight current note
+    temp_midi_path = "temp_note.mid"
+    midi.save(temp_midi_path)
+    return temp_midi_path
+
+def play_single_note_midi(note_hex, velocity=90):
+    """Create and play a single note using a temporary MIDI file."""
+    temp_midi_path = create_temporary_midi_file(note_hex, velocity)
+    os.system(f"timidity {temp_midi_path}")  # Using TiMidity++ to play MIDI
+    os.remove(temp_midi_path)
+
+def play_track(track):
+    """Play a track using TiMidity++."""
+    temp_midi_path = "temp_track.mid"
+    save_as_midi(track, temp_midi_path)
+    os.system(f"timidity {temp_midi_path}")
+    os.remove(temp_midi_path)
+    
+def save_as_midi(track, filename):
+    """Save the given track as a MIDI file with sustain functionality."""
+    midi = MidiFile()
+    miditrack = MidiTrack()
+    midi.tracks.append(miditrack)
+
+    # Convert instrument to integer
+    instrument = int(track['instrument'])
+    
+    # Append program change message with correct instrument
+    miditrack.append(Message('program_change', program=instrument, time=0))
+
+    # Handle notes with sustain
+    previous_note = None
+    sustain_start_time = 0
+
+    for beat, note_hex in enumerate(track['notes']):
+        note = int(note_hex, 16)
+        
+        if note_hex == '00':
+            # Handle muted note as a pause
+            if previous_note is not None:
+                # End the previous note
+                miditrack.append(Message('note_off', note=previous_note, velocity=DEFAULT_VELOCITY, time=sustain_start_time or 480))
+                previous_note = None
+                sustain_start_time = 0
+            
+            miditrack.append(Message('note_on', note=0, velocity=0, time=0))
+            miditrack.append(Message('note_off', note=0, velocity=0, time=480))  # Note length
+        else:
+            if sustain and previous_note == note:
+                # Extend the duration of the previous note
+                sustain_start_time += 480
             else:
-                color_pair = 1  # Active track color
+                if previous_note is not None:
+                    # End the previous note
+                    miditrack.append(Message('note_off', note=previous_note, velocity=DEFAULT_VELOCITY, time=sustain_start_time or 480))
+                
+                # Start a new note
+                miditrack.append(Message('note_on', note=note, velocity=DEFAULT_VELOCITY, time=0))
+                sustain_start_time = 480 if sustain else 0
+                previous_note = note
+            
+    # End the last note
+    if previous_note is not None:
+        miditrack.append(Message('note_off', note=previous_note, velocity=DEFAULT_VELOCITY, time=sustain_start_time or 480))
+    
+    midi.save(filename)
 
-            x_pos = (i - start_index) * NOTE_LENGTH
-            y_pos = note_idx + 1
-            stdscr.addstr(y_pos, x_pos, note_display_str, curses.color_pair(color_pair))
-            # Coloring the active track and other tracks differently
-            for idx, char in enumerate(note_display):
-                if char != '_':
-                    char_color = curses.color_pair(1) if idx == active_track_id else curses.color_pair(4)
-                    stdscr.addch(y_pos, x_pos + 1 + idx, char, char_color)
+
+def draw_grid(stdscr, x, y, current_octave):
+    stdscr.clear()
+    sustain_status = "Enabled" if sustain else "Disabled"
+    loop_status = "Looping" if loop else "Not Looping"
+    stdscr.addstr(0, 0, f"Sustain: {sustain_status} | Loop: {loop_status} | Use arrow keys to move, space to place a note, 'q' to export, 'Enter' to play, '-'/'=' to change track, 'p' to play track, 'l' to toggle loop.")
+
+    max_y, max_x = stdscr.getmaxyx()  # Get terminal size
+    offset_x = 6
+
+    # Calculate the range of notes to display for the current octave
+    start_note = current_octave * OCTAVE_SIZE
+    end_note = start_note + OCTAVE_SIZE
+    visible_notes = NOTES[start_note:end_note]
+
+    # Display the note names
+    for i, note in enumerate(visible_notes):
+        if i == y:
+            stdscr.addstr(8, 2, note)
+
+    # Display beats row
+    for i in range(16):
+        stdscr.addstr(6, offset_x + i * 3, f'{i:02X}')
+
+    # Display placed notes
+    for beat in range(16):
+        note_hex = tracks[current_track]['notes'][beat]
+        note_index = start_note + y  # Calculate the note index for the current row
+        cell_x = offset_x + beat * 3
+        cell_y = 8  # + y
+
+        if note_hex == '00':
+            stdscr.addstr(cell_y, cell_x, '..')
+        else:
+            stdscr.addstr(cell_y, cell_x, note_hex)
+
+    # Highlight cursor position with inverted color
+    cursor_note_index = start_note + y
+    if 0 <= y < len(visible_notes) and 0 <= x < 16:
+        cursor_note_hex = tracks[current_track]['notes'][x]
+        cell_x = offset_x + x * 3
+        cell_y = 8  # + y
+
+        # Display the note hex at the cursor position with inverted color
+        stdscr.attron(curses.A_REVERSE)
+        stdscr.addstr(cell_y, cell_x, cursor_note_hex if cursor_note_hex != '00' else '..')
+        stdscr.attroff(curses.A_REVERSE)
+        
+    # Display current track id at the top
+    stdscr.addstr(1, max_x - 20, f"Track: {current_track}")
 
     stdscr.refresh()
 
-def draw_info(stdscr, active_track_id, tempo, volumes, instruments, muted):
-    max_y, max_x = stdscr.getmaxyx()
-    info_y = NUM_NOTES + 2  # Position below the notes grid
-
-    volume_index = VOLUME_LEVELS.index(volumes[active_track_id])
-    instrument_name = INSTRUMENTS[instruments[active_track_id]]
-    mute_status = "Muted" if muted[active_track_id] else "Unmuted"
-
-    info_str = f"Track: {active_track_id}, Instrument: {instrument_name}, Volume: {volume_index + 1}, Tempo: {tempo}, Status: {mute_status}"
-    stdscr.addstr(info_y, 0, info_str, curses.color_pair(5))
-    stdscr.refresh()
 
 def main(stdscr):
-    global current_position, current_note, active_track_id, tempo
+    global current_track, sustain, loop
+    
+    curses.curs_set(0)
+    stdscr.nodelay(False)
+    stdscr.timeout(100)
+    
+    x, y = 0, 0  # Cursor position
+    current_octave = 0  # Track the current octave
+
+    init_tracks()
 
     while True:
-        stdscr.clear()
-        draw_tracks(stdscr, tracks, active_track_id, current_position, current_note)
-        draw_info(stdscr, active_track_id, tempo, volumes, instruments, muted)
+        max_y, max_x = stdscr.getmaxyx()  # Get the current terminal size
+        
+        draw_grid(stdscr, x, y, current_octave)
         key = stdscr.getch()
 
-        if key == curses.KEY_RIGHT:
-            current_position = (current_position + 1) % SONG_LENGTH
-        elif key == curses.KEY_LEFT:
-            current_position = (current_position - 1) % SONG_LENGTH
-        elif key == curses.KEY_UP:
-            current_note = (current_note - 1) % NUM_NOTES
+        if key == curses.KEY_UP:
+            y -= 1
+            if y < 0:
+                current_octave -= 1
+                if current_octave < 0:
+                    current_octave = (len(NOTES) // OCTAVE_SIZE) - 1
+                y = OCTAVE_SIZE - 1
         elif key == curses.KEY_DOWN:
-            current_note = (current_note + 1) % NUM_NOTES
+            y += 1
+            if y >= OCTAVE_SIZE:
+                current_octave += 1
+                if current_octave >= (len(NOTES) // OCTAVE_SIZE):
+                    current_octave = 0
+                y = 0
+        elif key == curses.KEY_LEFT and x > 0:
+            x -= 1
+        elif key == curses.KEY_RIGHT and x < 15:
+            x += 1
         elif key == ord(' '):
-            track = tracks[active_track_id]
-            track[current_note][current_position] = not track[current_note][current_position]
-        elif key == ord('\n'):
-            play_song()
-        elif key == ord('-'):
-            active_track_id = max(MIN_TRACK_ID, active_track_id - 1)
-        elif key == ord('='):
-            active_track_id = min(MAX_TRACK_ID, active_track_id + 1)
-        elif key == ord('V'):
-            volume_index = VOLUME_LEVELS.index(volumes[active_track_id])
-            if volume_index < len(VOLUME_LEVELS) - 1:
-                volumes[active_track_id] = VOLUME_LEVELS[volume_index + 1]
-        elif key == ord('v'):
-            volume_index = VOLUME_LEVELS.index(volumes[active_track_id])
-            if volume_index > 0:
-                volumes[active_track_id] = VOLUME_LEVELS[volume_index - 1]
-        elif key == ord('I'):
-            if instruments[active_track_id] < len(INSTRUMENTS) - 1:
-                instruments[active_track_id] += 1
-        elif key == ord('i'):
-            if instruments[active_track_id] > 0:
-                instruments[active_track_id] -= 1
-        elif key == ord('T'):
-            tempo += 5
-        elif key == ord('t'):
-            tempo = max(tempo - 5, 1)
-        elif key == ord('m'):
-            muted[active_track_id] = not muted[active_track_id]
-        elif key == ord('q'):
-            break
-
-def play_song():
-    global tempo
-    mid = MidiFile()
-    track = MidiTrack()
-    mid.tracks.append(track)
-    track.append(mido.MetaMessage('set_tempo', tempo=mido.bpm2tempo(tempo)))
-
-    ticks_per_beat = mid.ticks_per_beat
-    ticks_per_note = ticks_per_beat * 4 // SONG_LENGTH
-
-    for track_id in range(MIN_TRACK_ID, MAX_TRACK_ID + 1):
-        midi_track = MidiTrack()
-        mid.tracks.append(midi_track)
-        midi_track.append(Message('program_change', program=instruments[track_id]))
-        for i in range(SONG_LENGTH):
-            notes_to_play = []
-            for note_idx in range(NUM_NOTES):
-                if tracks[track_id][note_idx][i] and not muted[track_id]:
-                    notes_to_play.append((60 + note_idx, volumes[track_id]))  # Adjust MIDI note numbers as needed
-
-            if notes_to_play:
-                for note, volume in notes_to_play:
-                    midi_track.append(Message('note_on', note=note, velocity=volume, time=0))
-                for note, volume in notes_to_play:
-                    midi_track.append(Message('note_off', note=note, velocity=volume, time=ticks_per_note))
+            note_index = current_octave * OCTAVE_SIZE + y
+            if 0 <= note_index < len(NOTES):
+                note = NOTES[note_index]
+                print(f"Placing note {note} at grid column {x}, row {y} (octave {current_octave})")
+                tracks[current_track]['notes'][x] = note
             else:
-                # Add a silence
-                midi_track.append(Message('note_off', note=0, velocity=0, time=ticks_per_note))
+                print(f"Note index {note_index} out of range!")
 
-    mid.save('temp_song.mid')
-    # Play the MIDI file using timidity
-    import subprocess
-    subprocess.run(['timidity', 'temp_song.mid'])
+        elif key == ord('-'):
+            if current_track > 0:
+                current_track -= 1
+        elif key == ord('='):
+            if current_track < len(tracks) - 1:
+                current_track += 1
+            else:
+                tracks.append({'instrument': DEFAULT_INSTRUMENT, 'velocity': DEFAULT_VELOCITY, 'notes': ['00'] * 16})
+                current_track += 1
+        elif key == ord('\n'):
+            note_index = current_octave * OCTAVE_SIZE + y
+            if 0 <= note_index < len(NOTES):
+                note = NOTES[note_index]
+                play_single_note_midi(note)
+        elif key == ord('p'):
+            play_track(tracks[current_track])
+        elif key == ord('P'):
+            for track in tracks:
+                play_track(track)
+        elif key == ord('q'):
+            with open("song.txt", "w") as f:
+                f.write(f"# TEMPO:\n{DEFAULT_TEMPO}\n\n# TRACKS:\n")
+                for track in tracks:
+                    if any(note != '00' for note in track['notes']):
+                        f.write(f"{track['instrument']},{track['velocity']},{track['notes']}\n")
+            break
+        elif key == ord('c'):
+            sustain = not sustain  # Toggle sustain feature
+            print(f"Sustain {'enabled' if sustain else 'disabled'}")
+        elif key == ord('l'):
+            loop = not loop  # Toggle loop feature
+            print(f"Sustain {'enabled' if sustain else 'disabled'}")
 
-try:
+
+if __name__ == "__main__":
     curses.wrapper(main)
-finally:
-    curses.nocbreak()
-    stdscr.keypad(False)
-    curses.echo()
-    curses.curs_set(1)  # Restore default CLI cursor
-    curses.endwin()
